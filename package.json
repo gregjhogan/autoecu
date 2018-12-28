@@ -1,0 +1,35 @@
+{
+  "name": "rwd-flasher",
+  "version": "0.1.0",
+  "homepage": "https://autoecu.io/",
+  "dependencies": {
+    "@commaai/pandajs": "^0.3.5",
+    "@material-ui/core": "^3.7.0",
+    "@material-ui/icons": "^3.0.1",
+    "notistack": "^0.4.1",
+    "react": "^16.6.3",
+    "react-app-rewired": "^1.6.2",
+    "react-dom": "^16.6.3",
+    "react-scripts": "2.1.1",
+    "worker-loader": "^2.0.0"
+  },
+  "scripts": {
+    "start": "react-app-rewired start",
+    "build": "react-app-rewired build",
+    "test": "react-app-rewired test",
+    "eject": "react-scripts eject",
+    "deploy": "gh-pages -d build"
+  },
+  "eslintConfig": {
+    "extends": "react-app"
+  },
+  "browserslist": [
+    ">0.2%",
+    "not dead",
+    "not ie <= 11",
+    "not op_mini all"
+  ],
+  "devDependencies": {
+    "gh-pages": "^2.0.1"
+  }
+}
