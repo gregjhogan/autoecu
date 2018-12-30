@@ -4,6 +4,8 @@ import AppBar          from '@material-ui/core/AppBar';
 import Button          from '@material-ui/core/Button';
 import classNames      from 'classnames';
 import CssBaseline     from '@material-ui/core/CssBaseline';
+import IconButton      from '@material-ui/core/IconButton';
+import SvgIcon         from '@material-ui/core/SvgIcon';
 import MemoryIcon      from '@material-ui/icons/Memory';
 import Paper           from '@material-ui/core/Paper';
 import Stepper         from '@material-ui/core/Stepper';
@@ -41,6 +43,9 @@ const styles = theme => ({
       marginRight: 'auto',
     },
   },
+  grow: {
+    flexGrow: 1,
+  },
   dangerMessage: {
     fontWeight: 'bold',
     backgroundColor: theme.palette.error.dark,
@@ -61,12 +66,12 @@ const styles = theme => ({
   stepper: {
     padding: `${theme.spacing.unit * 3}px 0 ${theme.spacing.unit * 5}px`,
   },
-  buttons: {
+  stepButtons: {
     display: 'flex',
     justifyContent: 'flex-end',
   },
-  button: {
-    marginTop: theme.spacing.unit * 3,
+  stepButton: {
+    marginTop: theme.spacing.unit * 2,
     marginLeft: theme.spacing.unit,
   },
 });
@@ -228,9 +233,19 @@ class App extends React.Component {
         <CssBaseline />
         <AppBar position="absolute" className={classes.appBar}>
           <Toolbar>
-            <Typography variant="h6" color="inherit" noWrap>
+            <Typography variant="h6" color="inherit" className={classes.grow} noWrap>
               <MemoryIcon className={classNames('memory-icon')}/> Flash ECUs from your web browser using a <a className={classes.appBarLink} target="blank" href="https://comma.ai/shop/products/panda-obd-ii-dongle">panda</a>!
             </Typography>
+            <a href="https://github.com/gregjhogan/autoecu" target="_blank" rel="noopener noreferrer" title="GitHub repository">
+              <IconButton
+                className={classes.button}
+                aria-label="GitHub repository"
+              >
+                <SvgIcon style={{color: "white"}}>
+                  <path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2 0 1.9 1.2 1.9 1.2 1 1.8 2.8 1.3 3.5 1 0-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6 0-3.2 0 0 1-.3 3.4 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8 0 3.2.9.8 1.3 1.9 1.3 3.2 0 4.6-2.8 5.6-5.5 5.9.5.4.9 1 .9 2.2v3.3c0 .3.1.7.8.6A12 12 0 0 0 12 .3"></path>
+                </SvgIcon>
+              </IconButton>
+            </a>
           </Toolbar>
         </AppBar>
         <main className={classes.layout}>
@@ -252,9 +267,9 @@ class App extends React.Component {
               ) : (
                 <React.Fragment>
                   {this.getStepContent(activeStep)}
-                  <div className={classes.buttons}>
+                  <div className={classes.stepButtons}>
                     {(
-                      <Button onClick={this.handleBack} className={classes.button} disabled={activeStep === 0 || activeStep === 2 || activeStep === 3}>
+                      <Button onClick={this.handleBack} className={classes.stepButton} disabled={activeStep === 0 || activeStep === 2 || activeStep === 3}>
                         Back
                       </Button>
                     )}
@@ -262,7 +277,7 @@ class App extends React.Component {
                       variant="contained"
                       color="primary"
                       onClick={this.handleNext}
-                      className={classes.button}
+                      className={classes.stepButton}
                       disabled={this._shouldStep()}
                     >
                       {( activeStep === 3) ? 'Flash Firmware' : 'Next' }

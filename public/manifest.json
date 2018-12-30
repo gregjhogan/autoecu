@@ -1,6 +1,6 @@
 {
-  "short_name": "rwd-flasher",
-  "name": "Honda ECU firmware update (calibration file) flasher",
+  "short_name": "autoecu",
+  "name": "Automotive ECU tools in a web browser (using a panda)",
   "icons": [
     {
       "src": "favicon.ico",
