@@ -12,7 +12,10 @@ The [pandajs](https://github.com/commaai/pandajs) library is used to interface w
   * CAN bus protocol only
   * RWD firmware files only (more information [here](https://github.com/gregjhogan/rwd-xray))
 
-### View and Clear DTCs (check engine light)
+Other manufacturers would be great, write it and submit a PR!
+
+## View and Clear DTCs (check engine light)
+
 Not yet implemented, write it and sumbit a PR!
 
 ---
