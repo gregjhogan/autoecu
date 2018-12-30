@@ -1,3 +1,19 @@
+# AutoECU
+Automotive ECU tools from a web browser using a [panda](https://comma.ai/shop/products/panda-obd-ii-dongle)!
+
+The [pandajs](https://github.com/commaai/pandajs) library is used to interface with the [panda](https://comma.ai/shop/products/panda-obd-ii-dongle) OBD-II dongle.
+
+## Flash Firmware
+### Currently supported manufacturers
+* Honda
+  * CAN bus protocol only
+  * RWD firmware files only (more information [here](https://github.com/gregjhogan/rwd-xray))
+
+### View and Clear DTCs (check engine light)
+Not yet implemented, write it and sumbit a PR!
+
+---
+
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
 ## Available Scripts
