@@ -1,6 +1,9 @@
 # AutoECU
 Automotive ECU tools from a web browser using a [panda](https://comma.ai/shop/products/panda-obd-ii-dongle)!
 
+[![Flash Honda ECU firmware update from a web browser!
+](https://img.youtube.com/vi/ZeD3YfVxJsI/0.jpg)](https://www.youtube.com/watch?v=ZeD3YfVxJsI)
+
 The [pandajs](https://github.com/commaai/pandajs) library is used to interface with the [panda](https://comma.ai/shop/products/panda-obd-ii-dongle) OBD-II dongle.
 
 ## Flash Firmware
