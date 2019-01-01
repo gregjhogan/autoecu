@@ -20,7 +20,7 @@ self.__precacheManifest = [
     "url": "/3f3944beb0f92e544cf7.worker.js"
   },
   {
-    "revision": "773b9d757189caf1c6ec6cd3b30d67cc",
+    "revision": "bdceed76b9087f0e911e3f412ab34772",
     "url": "/index.html"
   }
 ];
