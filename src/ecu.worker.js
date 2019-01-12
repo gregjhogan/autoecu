@@ -41,7 +41,7 @@ class EcuWorker {
         return
       }
     }
-  
+
     throw new Error(`failed to find device with serial number: ${serialNumber}`)
   }
 
@@ -63,11 +63,12 @@ class EcuWorker {
   }
 
   async setFirmwareFile(file) {
-    console.log('parse rwd file ...')
-    console.log(file.name)
-    var data = await FileReaderAsync(file)
-    this.rwd = rwd.parse(data)
-    //this.client.debug = true
+    if (file) {
+      console.log('parse rwd file ...')
+      console.log(file.name)
+      var data = await FileReaderAsync(file)
+      this.rwd = rwd.parse(data)
+    }
   }
 
   async getFirmwareInfo() {
@@ -101,7 +102,7 @@ class EcuWorker {
 
     return serialNumber
   }
-  
+
   async getApplicationSoftwareId() {
     console.log('read data by id: application software id ...')
     var software_version = await this.client.read_data_by_identifier(DATA_IDENTIFIER_TYPE.APPLICATION_SOFTWARE_IDENTIFICATION)
@@ -109,7 +110,7 @@ class EcuWorker {
     console.log(software_version)
     return software_version
   }
-  
+
   async getSecurityAccessSeed() {
     console.log('session: extended diagnostic ...')
     await this.client.diagnostic_session_control(SESSION_TYPE.EXTENDED_DIAGNOSTIC)
@@ -129,17 +130,17 @@ class EcuWorker {
         throw e
       }
     }
-  
+
     return sa_seed
   }
-  
+
   async unlock(security_access_key) {
     console.log('security access: send key ...')
     console.log(`-key: ${security_access_key.toString('hex')}`)
     await this.client.security_access(ACCESS_TYPE.SEND_KEY, security_access_key)
     return true
   }
-  
+
   async flash(postMessage) {
     console.log('session: programming ...')
     postMessage({ command: 'flash-status', result: 'entering programming session ...' })
