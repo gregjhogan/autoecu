@@ -20,7 +20,6 @@ import { SnackbarProvider, withSnackbar } from 'notistack';
 import EcuWorker       from './ecu.worker'
 import SelectFirmware  from './components/SelectFirmware';
 import CheckCompatible from './components/CheckCompatible';
-import SecurityAccess  from './components/SecurityAccess';
 import FlashFirmware   from './components/FlashFirmware';
 import Donate          from './components/Donate'
 
@@ -76,7 +75,7 @@ const styles = theme => ({
   },
 });
 
-const steps = ['Select', 'Validate', 'Unlock', 'Flash'];
+const steps = ['Select', 'Validate', 'Flash'];
 
 class App extends React.Component {
   constructor(props) {
@@ -90,7 +89,6 @@ class App extends React.Component {
     firmwareFile: undefined,
     ecuSoftwareVersion: undefined,
     ecuCompatible: undefined,
-    ecuUnlocked: undefined,
     userAgreement: false,
     flashing: false,
   };
@@ -130,8 +128,6 @@ class App extends React.Component {
       case 1:
         return <CheckCompatible worker={this.worker} onReceiveSoftwareVersion={this.onReceiveSoftwareVersion} onReceiveCompatible={this.onReceiveCompatible} />;
       case 2:
-        return <SecurityAccess worker={this.worker} ecuSoftwareVersion={this.state.ecuSoftwareVersion} onReceiveUnlock={this.onReceiveUnlock} />;
-      case 3:
         return <FlashFirmware worker={this.worker} onReceiveUserAgreement={this.onReceiveUserAgreement} />;
       default:
         throw new Error('Unknown step');
@@ -143,7 +139,6 @@ class App extends React.Component {
       firmwareFile: file,
       ecuSoftwareVersion: undefined,
       ecuCompatible: undefined,
-      ecuUnlocked: false,
       userAgreement: false,
       flashing: false,
     }))
@@ -153,7 +148,6 @@ class App extends React.Component {
     this.setState(state => ({
       ecuSoftwareVersion: softwareVersion,
       ecuCompatible: undefined,
-      ecuUnlocked: false,
       userAgreement: false,
       flashing: false,
     }))
@@ -162,15 +156,6 @@ class App extends React.Component {
   onReceiveCompatible = (compatible) => {
     this.setState(state => ({
       ecuCompatible: compatible,
-      ecuUnlocked: false,
-      userAgreement: false,
-      flashing: false,
-    }))
-  }
-
-  onReceiveUnlock = (unlocked) => {
-    this.setState(state => ({
-      ecuUnlocked: unlocked,
       userAgreement: false,
       flashing: false,
     }))
@@ -182,8 +167,9 @@ class App extends React.Component {
       flashing: false,
     }))
   }
+  
   handleNext = async () => {
-    if (this.state.activeStep === 3) {
+    if (this.state.activeStep === 2) {
       this.setState(state => ({
         flashing: true,
       }))
@@ -215,10 +201,7 @@ class App extends React.Component {
     else if (this.state.activeStep === 1 && !this.state.ecuCompatible) {
       return true
     }
-    else if (this.state.activeStep === 2 && !this.state.ecuUnlocked) {
-      return true
-    }
-    else if (this.state.activeStep === 3 && (!this.state.userAgreement || this.state.flashing)) {
+    else if (this.state.activeStep === 2 && (!this.state.userAgreement || this.state.flashing)) {
       return true
     }
     return false
@@ -269,7 +252,7 @@ class App extends React.Component {
                   {this.getStepContent(activeStep)}
                   <div className={classes.stepButtons}>
                     {(
-                      <Button onClick={this.handleBack} className={classes.stepButton} disabled={activeStep === 0 || activeStep === 2 || activeStep === 3}>
+                      <Button onClick={this.handleBack} className={classes.stepButton} disabled={activeStep === 0 || activeStep === 2}>
                         Back
                       </Button>
                     )}
@@ -280,7 +263,7 @@ class App extends React.Component {
                       className={classes.stepButton}
                       disabled={this._shouldStep()}
                     >
-                      {( activeStep === 3) ? 'Flash Firmware' : 'Next' }
+                      {( activeStep === 2) ? 'Flash Firmware' : 'Next' }
                     </Button>
                   </div>
                 </React.Fragment>

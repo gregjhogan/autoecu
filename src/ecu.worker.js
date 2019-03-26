@@ -15,6 +15,7 @@ class EcuWorker {
 
     this.client = new UdsClient(this.panda)
     this.rwd = undefined
+    this.softwareVersion = undefined
 
     this._connectWebWorker = this._connectWebWorker.bind(this)
     this._onError = this._onError.bind(this)
@@ -24,7 +25,7 @@ class EcuWorker {
     this.connect = this.connect.bind(this)
     this.getApplicationSoftwareId = this.getApplicationSoftwareId.bind(this)
     this.getSecurityAccessSeed = this.getSecurityAccessSeed.bind(this)
-    this.unlock = this.unlock.bind(this)
+    this.getSecurityAccessKey = this.getSecurityAccessKey.bind(this)
     this.flash = this.flash.bind(this)
   }
 
@@ -105,21 +106,18 @@ class EcuWorker {
 
   async getApplicationSoftwareId() {
     console.log('read data by id: application software id ...')
-    var software_version = await this.client.read_data_by_identifier(DATA_IDENTIFIER_TYPE.APPLICATION_SOFTWARE_IDENTIFICATION)
-    software_version = software_version.toString()
-    console.log(software_version)
-    return software_version
+    var data = await this.client.read_data_by_identifier(DATA_IDENTIFIER_TYPE.APPLICATION_SOFTWARE_IDENTIFICATION)
+    this.softwareVersion = data.toString()
+    console.log(this.softwareVersion)
+    return this.softwareVersion
   }
 
   async getSecurityAccessSeed() {
-    console.log('session: extended diagnostic ...')
-    await this.client.diagnostic_session_control(SESSION_TYPE.EXTENDED_DIAGNOSTIC)
-    console.log('security access: request seed ...')
     while (true) {
       try {
-        var sa_seed = await this.client.security_access(ACCESS_TYPE.REQUEST_SEED)
-        console.log(`-seed: ${sa_seed.toString('hex')}`)
-        break
+        var seed = await this.client.security_access(ACCESS_TYPE.REQUEST_SEED)
+        console.log(`-seed: 0x${seed.toString('hex')}`)
+        return seed
       }
       catch (e) {
         if (e instanceof NegativeResponseError && e.error_code === 0x37) {
@@ -130,38 +128,67 @@ class EcuWorker {
         throw e
       }
     }
-
-    return sa_seed
   }
 
-  async unlock(security_access_key) {
-    console.log('security access: send key ...')
-    console.log(`-key: ${security_access_key.toString('hex')}`)
-    await this.client.security_access(ACCESS_TYPE.SEND_KEY, security_access_key)
-    return true
+  getSecurityAccessKey(seed) {
+    if (!this.rwd || !this.rwd.compatibleVersions[this.softwareVersion]) {
+      throw new Error(`failed to find security access algorithm keys for version: ${this.softwareVersion}`)
+    }
+
+    let s = seed.readUInt16BE(0)
+    let keys = this.rwd.compatibleVersions[this.softwareVersion]
+    let k1 = keys.readUInt16BE(0)
+    let k2 = keys.readUInt16BE(2)
+    let k3 = 0
+    if (keys.byteLength == 6) {
+      k3 = keys.readUInt16BE(4)
+    }
+
+    let sa_key = ((k3 !== 0 ? s * k2 % k3 : s * k2) ^ (s + k1)) & 0xFFFF
+    console.log(`-key: 0x${sa_key.toString(16)}`)
+
+    let buf = new Buffer(2)
+    buf.writeUInt16BE(sa_key)
+    return buf
   }
 
   async flash(postMessage) {
+    console.log('session: extended diagnostic ...')
+    postMessage({ command: 'flash-status', result: 'entering extended diagnostic session ...' })
+    await this.client.diagnostic_session_control(SESSION_TYPE.EXTENDED_DIAGNOSTIC)
+
+    console.log('security access: request seed ...')
+    postMessage({ command: 'flash-status', result: 'send security access request ...' })
+    let sa_seed = await this.getSecurityAccessSeed()
+
+    console.log('security access: send key ...')
+    postMessage({ command: 'flash-status', result: 'send security access response ...' })
+    await this.client.security_access(ACCESS_TYPE.SEND_KEY, this.getSecurityAccessKey(sa_seed))
+
     console.log('session: programming ...')
     postMessage({ command: 'flash-status', result: 'entering programming session ...' })
     await this.client.diagnostic_session_control(SESSION_TYPE.PROGRAMMING)
+
     console.log('routine control: erase memory ...')
     postMessage({ command: 'flash-status', result: 'erase memory ...' })
     await this.client.routine_control(ROUTINE_CONTROL_TYPE.START, ROUTINE_IDENTIFIER_TYPE.ERASE_MEMORY)
+
     console.log('write data by id: set programming key ...')
     postMessage({ command: 'flash-status', result: 'set programming key ...' })
     await this.client.write_data_by_identifier(0xF101, this.rwd.firmware.decryptionKey)
+
     console.log('request download ...')
-    postMessage({ command: 'flash-status', result: 'flash firmware ...' })
+    postMessage({ command: 'flash-status', result: 'flash firmware ...' })    
     console.log(`-start addr: 0x${this.rwd.firmware.start.toString(16)}`)
     console.log(`-data length: 0x${this.rwd.firmware.size.toString(16)}`)
     var block_size = await this.client.request_download(this.rwd.firmware.start, this.rwd.firmware.size)
     console.log(`-block size: 0x${block_size.toString(16)}`)
+
     console.log('transfer data ...')
+    postMessage({ command: 'flash-progress', result: 0 })
     // account for service id and block sequence count (one byte each)
     var chunk_size = block_size - 2
     var cnt = 0
-    postMessage({ command: 'flash-progress', result: 0 })
     for (let i=0; i<this.rwd.firmware.data.byteLength; i += chunk_size) {
       cnt += 1
       let chunk = this.rwd.firmware.data.slice(i, i+chunk_size)
@@ -171,11 +198,14 @@ class EcuWorker {
       postMessage({ command: 'flash-progress', result: (i/this.rwd.firmware.data.byteLength*100) | 0 })
     }
     postMessage({ command: 'flash-progress', result: 100 })
+
     console.log('request transfer exit ...')
     await this.client.request_transfer_exit()
+
     console.log('routine control: check dependencies ...')
     postMessage({ command: 'flash-status', result: 'check dependencies ...' })
     await this.client.routine_control(ROUTINE_CONTROL_TYPE.START, ROUTINE_IDENTIFIER_TYPE.CHECK_PROGRAMMING_DEPENDENCIES)
+
     console.log('done!')
     postMessage({ command: 'flash-status', result: 'complete!' })
     return true
@@ -209,12 +239,6 @@ async function _messageHandler(e) {
         break
       case 'get-app-software-id':
         result = await ecuWorker.getApplicationSoftwareId()
-        break
-      case 'get-security-access-seed':
-        result = await ecuWorker.getSecurityAccessSeed()
-        break
-      case 'unlock':
-        result = await ecuWorker.unlock(Buffer.from(e.data.params))
         break
       case 'flash':
         result = await ecuWorker.flash(postMessage)
