@@ -67,7 +67,7 @@ class CheckCompatible extends React.Component {
         }
         break
       case 'get-app-software-id':
-        let compatible = this.state.firmwareVersions && this.state.firmwareVersions[result]
+        let compatible = !!(this.state.firmwareVersions && this.state.firmwareVersions[result])
         this.setState(state => ({
           softwareVersion: result,
           versionStatus: compatible,
@@ -99,12 +99,20 @@ class CheckCompatible extends React.Component {
   }
 
   clickConnect = async () => {
-    this.setState(state => ({ connected: true }))
     // connecting to user device can only happen inside a click handler
-    let device = await navigator.usb.requestDevice({
-      filters: [{ vendorId: 0xbbaa }]
-    });
-    this.props.worker.postMessage({ command: 'connect', params: device.serialNumber })
+    try {
+      let device = await navigator.usb.requestDevice({
+        filters: [{ vendorId: 0xbbaa }]
+      });
+      this.setState(state => ({ connected: true }))
+      this.props.worker.postMessage({ command: 'connect', params: device.serialNumber })
+    } catch (e) {
+      if (e.name === 'NotFoundError' && e.code === 8) {
+        // cancel button clicked
+        return
+      }
+      throw e
+    }
   }
 
   _convertToValidStatus(bool) {
