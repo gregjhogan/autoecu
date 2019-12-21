@@ -320,7 +320,7 @@ export class UdsClient {
       // TODO: fix the exception that this throws
       // TypeError: Cannot read property 'toString' of undefined
       try {
-        await this.panda.setSafetyMode(0x1337)
+        await this.panda.setSafetyMode(17)
       } catch {}
       
       // forgot to implement can clear in pandajs ?!?
