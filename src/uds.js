@@ -317,12 +317,6 @@ export class UdsClient {
         }
       }
   
-      // TODO: fix the exception that this throws
-      // TypeError: Cannot read property 'toString' of undefined
-      try {
-        await this.panda.setSafetyMode(17)
-      } catch {}
-      
       // forgot to implement can clear in pandajs ?!?
       await this.panda.vendorWrite(`CAN clear: TX ${this.bus}`, {request: 0xF1, value: this.bus, index: 0});
       await this.panda.vendorWrite('CAN clear: RX', {request: 0xF1, value: 0xFFFF, index: 0});

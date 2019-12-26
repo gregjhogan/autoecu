@@ -38,6 +38,10 @@ class EcuWorker {
         await this.panda.device.device.open();
         await this.panda.device.device.selectConfiguration(1);
         await this.panda.device.device.claimInterface(0);
+        // use SAFETY_ALLOUTPUT
+        await this.panda.setSafetyMode(17)
+        // use OBD port
+        await this.panda.setObd(await this.panda.hasObd())
         await this.panda.unpause()
         return
       }
@@ -94,7 +98,8 @@ class EcuWorker {
     await this._connectWebWorker(serialNumber)
     if (this.rwd && this.rwd.canAddress) {
       console.log(`0x${this.rwd.canAddress.toString(16)}`)
-      await this.client.init(this.rwd.canAddress)
+      var bus = await this.panda.hasObd() ? 1 : 0
+      await this.client.init(this.rwd.canAddress, undefined, bus)
       await this._ping(true)
     }
     else {
