@@ -49,7 +49,7 @@ export default {
 
     var versions = {}
     for (let i=0; i<headers[3].length; i++) {
-      let version = headers[3][i].toString()
+      let version = headers[3][i].toString().replace(/\0/g, '')
       versions[version] = Buffer.from(headers[4][i])
     }
     

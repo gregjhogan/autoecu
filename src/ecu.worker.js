@@ -38,10 +38,8 @@ class EcuWorker {
         await this.panda.device.device.open();
         await this.panda.device.device.selectConfiguration(1);
         await this.panda.device.device.claimInterface(0);
-        // use SAFETY_ALLOUTPUT
-        await this.panda.setSafetyMode(17)
-        // use OBD port
-        await this.panda.setObd(await this.panda.hasObd())
+        // use SAFETY_ELM327
+        await this.panda.setSafetyMode(3)
         await this.panda.unpause()
         return
       }
@@ -112,7 +110,7 @@ class EcuWorker {
   async getApplicationSoftwareId() {
     console.log('read data by id: application software id ...')
     var data = await this.client.read_data_by_identifier(DATA_IDENTIFIER_TYPE.APPLICATION_SOFTWARE_IDENTIFICATION)
-    this.softwareVersion = data.toString()
+    this.softwareVersion = data.toString().replace(/\0/g, '')
     console.log(this.softwareVersion)
     return this.softwareVersion
   }
