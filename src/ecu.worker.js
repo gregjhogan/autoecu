@@ -94,9 +94,15 @@ class EcuWorker {
     // can not use panda.start() because it calls requestDevice which is not supported from a Web Worker
     //await this.panda.start()
     await this._connectWebWorker(serialNumber)
+    var pandaVersion = await this.panda.getVersion()
+    console.log(`panda: ${pandaVersion}`)
+    if (!pandaVersion.includes('DEV')) {
+      throw new Error(`panda firmware not DEV build: ${pandaVersion}`)
+    }
     if (this.rwd && this.rwd.canAddress) {
-      console.log(`0x${this.rwd.canAddress.toString(16)}`)
+      console.log(`addr: 0x${this.rwd.canAddress.toString(16)}`)
       var bus = await this.panda.hasObd() ? 1 : 0
+      console.log(`bus: ${bus}`)
       await this.client.init(this.rwd.canAddress, undefined, bus)
       await this._ping(true)
     }
