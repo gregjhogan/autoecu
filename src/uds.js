@@ -287,233 +287,235 @@ export class UdsClient {
     this.panda = panda
     this.debug = debug
     this.timeout = timeout
-    this.tx_queue = []
-    this.rx_queue = []
-    this.panda.onMessage(this._isotp_response)
+    this.rx_buffer = []
+    this.panda.onMessage(this._can_recv)
   }
   
   init = async (tx_addr, rx_addr=undefined, bus=0) => {
-    var id = Math.random()
-    this.tx_queue.push(id)
-    try {
-      // wait your turn
-      while (this.tx_queue[0] !== id) {
-        await sleep(100)
-      }
+    this._reset_msg()
 
-      this._reset_frame()
-
-      this.bus = bus
-      this.tx_addr = tx_addr
-      if (rx_addr === undefined) {
-        if (tx_addr < 0xFFF8) {
-          this.rx_addr = tx_addr+8
-        }
-        else if (tx_addr > 0x10000000 && tx_addr < 0xFFFFFFFF) {
-          this.rx_addr = (tx_addr & 0xFFFF0000) + ((tx_addr<<8) & 0xFF00) + ((tx_addr>>8) & 0xFF)
-        }
-        else {
-          throw new Error(`invalid tx_addr: ${tx_addr}`)
-        }
+    this.bus = bus
+    this.tx_addr = tx_addr
+    if (rx_addr === undefined) {
+      if (tx_addr < 0xFFF8) {
+        this.rx_addr = tx_addr+8
       }
-  
-      // forgot to implement can clear in pandajs ?!?
-      await this.panda.vendorWrite(`CAN clear: TX ${this.bus}`, {request: 0xF1, value: this.bus, index: 0});
-      await this.panda.vendorWrite('CAN clear: RX', {request: 0xF1, value: 0xFFFF, index: 0});
+      else if (tx_addr > 0x10000000 && tx_addr < 0xFFFFFFFF) {
+        this.rx_addr = (tx_addr & 0xFFFF0000) + ((tx_addr<<8) & 0xFF00) + ((tx_addr>>8) & 0xFF)
+      }
+      else {
+        throw new Error(`invalid tx_addr: ${tx_addr}`)
+      }
     }
-    finally {
-      this.tx_queue.shift()
-    }
+
+    // forgot to implement can clear in pandajs ?!?
+    await this.panda.vendorWrite(`CAN clear: TX ${this.bus}`, {request: 0xF1, value: this.bus, index: 0});
+    await this.panda.vendorWrite('CAN clear: RX', {request: 0xF1, value: 0xFFFF, index: 0});
   }
 
-  _reset_frame = () => {
-    this.rx_frame = {size: 0, data: "", idx: 0, done: true}
-    this.tx_frame = {size: 0, data: "", idx: 0, done: true}
+  _reset_msg = (data=undefined) => {
+    this.rx_buffer = []
+    this.rx_isotp = {size: 0, data: "", idx: 0, done: data === undefined}
+    this.tx_isotp = {size: data !== undefined ? data.byteLength : 0, data: data !== undefined ? data : "", idx: 0, done: data === undefined}
   }
 
   _can_send = async (data) => {
     var msg = packCAN({address: this.tx_addr, data: data, bus: this.bus})
-    if (this.debug) console.log(`S: 0x${this.tx_addr.toString(16)} ${data.toString('hex')}`)
+    if (this.debug) console.log(`CAN-TX: 0x${this.tx_addr.toString(16)} - ${data.toString('hex')}`)
     // forgot to implement can send in pandajs ?!?
     await this.panda.device.device.transferOut(3, msg)
   }
 
-  _isotp_request = async (data) => {
-    assert(this.tx_frame.done === true, 'tx: concurrent messages not supported')
-    assert(this.rx_frame.done === true, 'rx: concurrent messages not supported')
-
-    this._reset_frame()
-    this.tx_frame.data = data
-    this.tx_frame.size = data.byteLength
-    var msg = Buffer.alloc(8)
-
-    if (this.tx_frame.size < 8) {
-      // single frame
-      this.tx_frame.done = true
-      msg.writeUInt8(this.tx_frame.size, 0)
-      this.tx_frame.data.copy(msg, 1)
-      await this._can_send(msg)
-    }
-    else {
-      // first frame
-      this.tx_frame.done = false
-      msg.writeUInt16BE(0x1000 | this.tx_frame.size)
-      this.tx_frame.data.copy(msg, 2, 0, 6)
-      await this._can_send(msg)
-    }
-  }
-
-  _isotp_response = async (resp) => {
+  _can_recv = async (resp) => {
     for (var r of resp) {
       for (var msg of r.canMessages) {
         if (msg.bus !== this.bus || msg.address !== this.rx_addr || msg.data.byteLength === 0) {
           continue
         }
+        
+        if (this.debug) console.log(`CAN-RX: 0x${msg.address.toString(16)} - ${msg.data.toString('hex')}`)
+        this.rx_buffer.push(msg.data)
+      }
+    }
+  }
 
-        if (this.debug) console.log(`R: 0x${msg.address.toString(16)} ${msg.data.toString('hex')}`)
-        if (msg.data[0] >> 4 === 0x0) {
-          // single this.rx_frame
-          this.rx_frame.size = msg.data[0] & 0xFF
-          this.rx_frame.data = msg.data.slice(1, this.rx_frame.size+1)
-          this.rx_frame.idx = 0
-          this.rx_frame.done = true
-          this.rx_queue.unshift(this.rx_frame.data)
-        }
-        else if (msg.data[0] >> 4 === 0x1) {
-          // first this.rx_frame
-          this.rx_frame.size = ((msg.data[0] & 0x0F) << 8) + msg.data[1]
-          this.rx_frame.data = Buffer.alloc(this.rx_frame.size)
-          msg.data.copy(this.rx_frame.data, 0, 2)
-          this.rx_frame.idx = 0
-          this.rx_frame.done = false
-          // send flow control message (send all bytes)
-          await this._can_send(Buffer.from([0x30, 0x00, 0x00, 0, 0, 0, 0, 0]))
-        }
-        else if (msg.data[0] >> 4 === 0x2) {
-          // consecutive rx frame
-          assert(this.rx_frame.done === false, "rx: no active frame")
-          // validate frame index
-          this.rx_frame.idx += 1
-          assert((this.rx_frame.idx & 0xF) === (msg.data[0] & 0xF), "rx: invalid consecutive frame index")
-          let start = 6 + (this.rx_frame.idx-1) * 7
-          let size = Math.min(this.rx_frame.size - start, 7)
-          msg.data.copy(this.rx_frame.data, start, 1, 1+size)
-          if (this.rx_frame.size === start + size) {
-            this.rx_frame.done = true
-            this.rx_queue.unshift(this.rx_frame.data)
+  _isotp_request = async (data) => {
+    assert(this.tx_isotp.done === true, 'isotp - tx: concurrent messages not supported')
+    assert(this.rx_isotp.done === true, 'isotp - rx: concurrent messages not supported')
+
+    this._reset_msg(data)
+    var msg = Buffer.alloc(8)
+
+    if (this.tx_isotp.size < 8) {
+      // single tx frame
+      if (this.debug) console.log("ISO-TP: TX - single frame")
+      this.tx_isotp.done = true
+      msg.writeUInt8(this.tx_isotp.size, 0)
+      this.tx_isotp.data.copy(msg, 1)
+    }
+    else {
+      // first tx frame
+      if (this.debug) console.log("ISO-TP: TX - first frame")
+      this.tx_isotp.done = false
+      msg.writeUInt16BE(0x1000 | this.tx_isotp.size)
+      this.tx_isotp.data.copy(msg, 2, 0, 6)
+    }
+    await this._can_send(msg)
+  }
+
+  _isotp_response = async (data) => {
+    // single rx frame
+    if (data[0] >> 4 === 0x0) {
+      this.rx_isotp.size = data[0] & 0xFF
+      this.rx_isotp.data = data.slice(1, this.rx_isotp.size+1)
+      this.rx_isotp.idx = 0
+      this.rx_isotp.done = true
+      if (this.debug) console.log(`ISO-TP: RX - single frame - idx=${this.rx_isotp.idx} done=${this.rx_isotp.done}`)
+      return
+    }
+
+    // first rx frame
+    if (data[0] >> 4 === 0x1) {
+      this.rx_isotp.size = ((data[0] & 0x0F) << 8) + data[1]
+      this.rx_isotp.data = Buffer.alloc(this.rx_isotp.size)
+      data.copy(this.rx_isotp.data, 0, 2)
+      this.rx_isotp.idx = 0
+      this.rx_isotp.done = false
+      if (this.debug) console.log(`ISO-TP: RX - first frame - idx=${this.rx_isotp.idx} done=${this.rx_isotp.done}`)
+      if (this.debug) console.log("ISO-TP: TX - flow control continue")
+      // send flow control message (send all bytes)
+      await this._can_send(Buffer.from([0x30, 0x00, 0x00, 0, 0, 0, 0, 0]))
+      return
+    }
+    
+    // consecutive rx frame
+    if (data[0] >> 4 === 0x2) {
+      assert(this.rx_isotp.done === false, "isotp - rx: consecutive frame with no active frame")
+      // validate frame index
+      this.rx_isotp.idx += 1
+      assert((this.rx_isotp.idx & 0xF) === (data[0] & 0xF), "isotp - rx: invalid consecutive frame index")
+      let start = 6 + (this.rx_isotp.idx-1) * 7
+      let size = Math.min(this.rx_isotp.size - start, 7)
+      data.copy(this.rx_isotp.data, start, 1, 1+size)
+      if (this.rx_isotp.size === start + size) {
+        this.rx_isotp.done = true
+      }
+      if (this.debug) console.log(`ISO-TP: RX - consecutive frame - idx=${this.rx_isotp.idx} done=${this.rx_isotp.done}`)
+      return
+    }
+
+    // flow control
+    if (data[0] >> 4 === 0x3) {
+      assert(this.tx_isotp.done === false, "isotp - rx: flow control with no active frame")
+      assert(data[0] !== 0x32, "isotp - rx: flow-control overflow/abort")
+      assert(data[0] === 0x30 || data[0] === 0x31, "isotp - rx: flow-control transfer state indicator invalid")
+      if (data[0] === 0x30) {
+        if (this.debug) console.log("ISO-TP: RX - flow control continue")
+        // scale is 1 milliseconds if first bit === 0, 100 micro seconds if first bit === 1
+        let delay_ms = parseInt((data[2] & 0x7F) / ((data[2] & 0x80) === 0 ? 1 : 10.), 10)
+        // first frame = 6 bytes, each consecutive frame = 7 bytes
+        let start = 6 + this.tx_isotp.idx * 7
+        let count = data[1]
+        // count == 0 means send all remaining frames with no delay
+        let end = count > 0 ? start + count * 7 : this.tx_isotp.size
+        for (let i=start; i<end; i+=7) {
+          this.tx_isotp.idx += 1
+          // consecutive tx frames
+          let msg = Buffer.alloc(8)
+          msg.writeUInt8(0x20 | (this.tx_isotp.idx & 0xF))
+          this.tx_isotp.data.copy(msg, 1, i, i+7)
+          await this._can_send(msg)
+          if (delay_ms > 0) {
+            await sleep(delay_ms)
           }
         }
-        else if (msg.data[0] >> 4 === 0x3) {
-          // flow control
-          assert(this.tx_frame.done === false, "tx: no active frame")
-          // TODO: support wait/overflow
-          assert(msg.data[0] === 0x30, "tx: flow-control requires: continue")
-          // scale is 1 milliseconds if first bit === 0, 100 micro seconds if first bit === 1
-          let delay_ms = parseInt((msg.data[2] & 0x7F) / ((msg.data[2] & 0x80) === 0 ? 1 : 10.), 10)
-          // first frame = 6 bytes, each consecutive frame = 7 bytes
-          let start = 6 + this.tx_frame.idx * 7
-          let count = msg.data[1]
-          // count == 0 means send all remaining frames with no delay
-          let end = count > 0 ? start + count * 7 : this.tx_frame.size
-          for (let i=start; i<end; i+=7) {
-            this.tx_frame.idx += 1
-            // consecutive tx frames
-            let msg = Buffer.alloc(8)
-            msg.writeUInt8(0x20 | (this.tx_frame.idx & 0xF))
-            this.tx_frame.data.copy(msg, 1, i, i+7)
-            await this._can_send(msg)
-            if (delay_ms > 0) {
-              await sleep(delay_ms)
-            }
-          }
-          if (end >= this.tx_frame.size) {
-            this.tx_frame.done = true
-          }
+        if (end >= this.tx_isotp.size) {
+          this.tx_isotp.done = true
         }
+        if (this.debug) console.log(`ISO-TP: TX - consecutive frame - idx=${this.tx_isotp.idx} done=${this.tx_isotp.done}`)
+      }
+      else if (data[0] === 0x31) {
+        // wait (do nothing until next flow control message)
+        if (this.debug) console.log("ISO-TP: RX - flow control wait")
       }
     }
   }
 
   // generic uds request
   _uds_request = async (service_type, subfunction=undefined, data=undefined) => {
-    var id = Math.random()
-    this.tx_queue.push(id)
-    try {
-      // wait your turn
-      while (this.tx_queue[0] !== id) {
-        await sleep(100)
-      }
+    var req = Buffer.alloc(1+(subfunction !== undefined ? 1 : 0)+(data !== undefined ? data.byteLength : 0))
+    req.writeUInt8(service_type)
+    if (subfunction !== undefined) {
+      req.writeUInt8(subfunction, 1)
+    }
+    if (data !== undefined) {
+      data.copy(req, subfunction === undefined ? 1 : 2)
+    }
+    await this._isotp_request(req)
 
-      var req = Buffer.alloc(1+(subfunction !== undefined ? 1 : 0)+(data !== undefined ? data.byteLength : 0))
-      req.writeUInt8(service_type)
-      if (subfunction !== undefined) {
-        req.writeUInt8(subfunction, 1)
-      }
-      if (data !== undefined) {
-        data.copy(req, subfunction === undefined ? 1 : 2)
-      }
-      await this._isotp_request(req)
-
-      var resp = undefined
-      while (true) {
-        // timeout after this.timeout seconds
-        for (var i = 0; i < this.timeout*100; i++) {
-          resp = this.rx_queue.pop()
-          if (resp !== undefined) {
+    var resp = undefined
+    while (true) {
+      // timeout after this.timeout seconds
+      for (var i = 0; i < this.timeout*100; i++) {
+        data = this.rx_buffer.shift()
+        if (data !== undefined) {
+          await this._isotp_response(data)
+          if (this.tx_isotp.done === true && this.rx_isotp.done === true) {
+            resp = this.rx_isotp.data
             break
           }
+        } else {
           await sleep(10)
         }
-            
-        if (resp === undefined) {
-          throw new MessageTimeoutError("timeout waiting for response")
-        }
-
-        var resp_sid = resp.length > 0 ? resp[0] : undefined
-        // negative response
-        if (resp_sid === NEGATIVE_RESPONSE_ID) {
-          var service_id = resp.length > 1 ? resp[1] : -1
-          // eslint-disable-next-line
-          var service_desc = Object.keys(SERVICE_TYPE).find((k) => SERVICE_TYPE[k] === service_id)
-          if (service_desc === undefined) {
-            service_desc = 'NON_STANDARD_SERVICE'
-          }
-          var error_code = resp.length > 2 ? resp[2] : -1
-          var error_desc = _negative_response_codes[error_code]
-          if (error_desc === undefined) {
-            error_desc = 'unknown error'
-          }
-          // wait for another message if response pending
-          if (error_code === 0x78) {
-            sleep(100)
-            continue
-          }
-          throw new NegativeResponseError(`${service_desc} - ${error_desc}`, service_id, error_code)
-        }
-
-        break
       }
 
-      // positive response
-      if (service_type+0x40 !== resp_sid) {
-        var resp_sid_hex = resp_sid !== undefined ? resp_sid.toString(16) : undefined
-        throw new InvalidServiceIdError(`invalid response service id: ${resp_sid_hex}`)
+      if (resp === undefined) {
+        this._reset_msg()
+        throw new MessageTimeoutError("timeout waiting for response")
       }
 
-      if (subfunction !== undefined) {
-        var resp_sfn = resp.length > 1 ? resp[1] : undefined
-        if (subfunction !== resp_sfn) {
-          var resp_sfn_hex = resp_sfn !== undefined ? resp_sfn.toString(16) : undefined
-          throw new InvalidSubFunctioneError(`invalid response subfunction: 0x${resp_sfn_hex}`)
+      var resp_sid = resp.length > 0 ? resp[0] : undefined
+      // negative response
+      if (resp_sid === NEGATIVE_RESPONSE_ID) {
+        var service_id = resp.length > 1 ? resp[1] : -1
+        // eslint-disable-next-line
+        var service_desc = Object.keys(SERVICE_TYPE).find((k) => SERVICE_TYPE[k] === service_id)
+        if (service_desc === undefined) {
+          service_desc = 'NON_STANDARD_SERVICE'
         }
+        var error_code = resp.length > 2 ? resp[2] : -1
+        var error_desc = _negative_response_codes[error_code]
+        if (error_desc === undefined) {
+          error_desc = 'unknown error'
+        }
+        // wait for another message if response pending
+        if (error_code === 0x78) {
+          if (this.debug) console.log("UDS-RX: response pending")
+          sleep(100)
+          continue
+        }
+        throw new NegativeResponseError(`${service_desc} - ${error_desc}`, service_id, error_code)
       }
 
-      // return data (exclude service id and sub-function id)
-      return resp.slice(subfunction === undefined ? 1 : 2)
+      break
     }
-    finally {
-      this.tx_queue.shift()
+
+    // positive response
+    if (service_type+0x40 !== resp_sid) {
+      var resp_sid_hex = resp_sid !== undefined ? resp_sid.toString(16) : undefined
+      throw new InvalidServiceIdError(`invalid response service id: ${resp_sid_hex}`)
     }
+
+    if (subfunction !== undefined) {
+      var resp_sfn = resp.length > 1 ? resp[1] : undefined
+      if (subfunction !== resp_sfn) {
+        var resp_sfn_hex = resp_sfn !== undefined ? resp_sfn.toString(16) : undefined
+        throw new InvalidSubFunctioneError(`invalid response subfunction: 0x${resp_sfn_hex}`)
+      }
+    }
+
+    // return data (exclude service id and sub-function id)
+    return resp.slice(subfunction === undefined ? 1 : 2)
  }
 
   // services

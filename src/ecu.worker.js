@@ -19,7 +19,6 @@ class EcuWorker {
 
     this._connectWebWorker = this._connectWebWorker.bind(this)
     this._onError = this._onError.bind(this)
-    this._ping = this._ping.bind(this)
     this.setFirmwareFile = this.setFirmwareFile.bind(this)
     this.getFirmwareInfo = this.getFirmwareInfo.bind(this)
     this.connect = this.connect.bind(this)
@@ -52,19 +51,6 @@ class EcuWorker {
     console.error(err)
   }
 
-  async _ping(raise) {
-    console.log('tester present ...')
-    try {
-      await this.client.tester_present()
-    } catch (e) {
-      if (raise) {
-        throw e
-      }
-      console.error(e)
-    }
-    this.pingHandle = setTimeout(this._ping, 1000)
-  }
-
   async setFirmwareFile(file) {
     if (file) {
       console.log('parse rwd file ...')
@@ -83,12 +69,6 @@ class EcuWorker {
   }
 
   async connect(serialNumber) {
-    if (this.pingHandle) {
-      console.log("stop pinging ...")
-      clearTimeout(this.pingHandle)
-      this.pingHandle = undefined
-    }
-
     console.log('connecting ...')
     console.log(serialNumber)
     // can not use panda.start() because it calls requestDevice which is not supported from a Web Worker
@@ -98,13 +78,16 @@ class EcuWorker {
       console.log(`0x${this.rwd.canAddress.toString(16)}`)
       var bus = await this.panda.hasObd() ? 1 : 0
       await this.client.init(this.rwd.canAddress, undefined, bus)
-      await this._ping(true)
     }
     else {
       console.log('missing CAN address!')
     }
 
     return serialNumber
+  }
+
+  async disconnect() {
+    await this.panda.pause()
   }
 
   async getApplicationSoftwareId() {
@@ -211,6 +194,8 @@ class EcuWorker {
 
     console.log('done!')
     postMessage({ command: 'flash-status', result: 'complete!' })
+
+    await this.disconnect()
     return true
   }
 }
