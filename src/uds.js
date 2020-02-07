@@ -1,5 +1,5 @@
 import assert from 'assert'
-import { packCAN } from 'can-message'
+import { packCAN, unpackCAN } from 'can-message'
 import sleep from './sleep'
 
 export const SERVICE_TYPE = {
@@ -288,7 +288,6 @@ export class UdsClient {
     this.debug = debug
     this.timeout = timeout
     this.rx_buffer = []
-    this.panda.onMessage(this._can_recv)
   }
   
   init = async (tx_addr, rx_addr=undefined, bus=0) => {
@@ -319,22 +318,62 @@ export class UdsClient {
     this.tx_isotp = {size: data !== undefined ? data.byteLength : 0, data: data !== undefined ? data : "", idx: 0, done: data === undefined}
   }
 
-  _can_send = async (data) => {
-    var msg = packCAN({address: this.tx_addr, data: data, bus: this.bus})
-    if (this.debug) console.log(`CAN-TX: 0x${this.tx_addr.toString(16)} - ${data.toString('hex')}`)
-    // forgot to implement can send in pandajs ?!?
-    await this.panda.device.device.transferOut(3, msg)
+  _can_tx = async (data) => {
+    let result = await this.panda.device.device.transferOut(3, data)
+    if (this.debug) console.log(`CAN-TX: result - byteLength=${data.byteLength} bytesWritten=${result.bytesWritten} status=${result.status}`)
+    if (data.byteLength != result.bytesWritten) {
+      console.log(`CAN-TX: error - incomplete transmission!`)
+    }
   }
 
-  _can_recv = async (resp) => {
-    for (var r of resp) {
-      for (var msg of r.canMessages) {
+  _can_send = async (data) => {
+    await this._can_send_many([data], 0)
+  }
+
+  _can_send_many = async (data, delay_ms=0) => {
+    let msgs = []
+    let first = true
+    for (let d of data) {
+      let msg = packCAN({address: this.tx_addr, data: d, bus: this.bus})
+      if (delay_ms > 0) {
+        if (!first) {
+          if (this.debug) console.log(`CAN-TX: delay - ${delay_ms}`)
+          await sleep(delay_ms)
+        }
+        await this._can_tx(msg)
+      } else {
+        msgs.push(msg)
+      }
+      first = false
+    }
+    
+    if (msgs.length > 0) {
+      await this._can_tx(Buffer.concat(msgs))
+    }
+  }
+
+  _can_recv = async () => {
+    while (true) {
+      let result = await this.panda.device.device.transferIn(1, 0x10*256)
+      if (this.debug) console.log(`CAN-RX: result - byteLength=${result.data.byteLength} status=${result.status}`)
+      if (!result.data) {
+        console.log(`CAN-RX: error - no data!`)
+        continue
+      }
+  
+      let msgs = unpackCAN(result.data.buffer);
+      for (let msg of msgs) {
         if (msg.bus !== this.bus || msg.address !== this.rx_addr || msg.data.byteLength === 0) {
           continue
         }
         
         if (this.debug) console.log(`CAN-RX: 0x${msg.address.toString(16)} - ${msg.data.toString('hex')}`)
         this.rx_buffer.push(msg.data)
+      }
+
+      // break when non-full buffer is processed
+      if (msgs.length < 254) {
+        return
       }
     }
   }
@@ -344,7 +383,7 @@ export class UdsClient {
     assert(this.rx_isotp.done === true, 'isotp - rx: concurrent messages not supported')
 
     this._reset_msg(data)
-    var msg = Buffer.alloc(8)
+    let msg = Buffer.alloc(8)
 
     if (this.tx_isotp.size < 8) {
       // single tx frame
@@ -418,17 +457,16 @@ export class UdsClient {
         let count = data[1]
         // count == 0 means send all remaining frames with no delay
         let end = count > 0 ? start + count * 7 : this.tx_isotp.size
+        let msgs = []
         for (let i=start; i<end; i+=7) {
           this.tx_isotp.idx += 1
           // consecutive tx frames
           let msg = Buffer.alloc(8)
           msg.writeUInt8(0x20 | (this.tx_isotp.idx & 0xF))
           this.tx_isotp.data.copy(msg, 1, i, i+7)
-          await this._can_send(msg)
-          if (delay_ms > 0) {
-            await sleep(delay_ms)
-          }
+          msgs.push(msg)
         }
+        await this._can_send_many(msgs, delay_ms)
         if (end >= this.tx_isotp.size) {
           this.tx_isotp.done = true
         }
@@ -443,7 +481,7 @@ export class UdsClient {
 
   // generic uds request
   _uds_request = async (service_type, subfunction=undefined, data=undefined) => {
-    var req = Buffer.alloc(1+(subfunction !== undefined ? 1 : 0)+(data !== undefined ? data.byteLength : 0))
+    let req = Buffer.alloc(1+(subfunction !== undefined ? 1 : 0)+(data !== undefined ? data.byteLength : 0))
     req.writeUInt8(service_type)
     if (subfunction !== undefined) {
       req.writeUInt8(subfunction, 1)
@@ -452,11 +490,13 @@ export class UdsClient {
       data.copy(req, subfunction === undefined ? 1 : 2)
     }
     await this._isotp_request(req)
-
-    var resp = undefined
+    let resp = undefined
+    let resp_sid = undefined
     while (true) {
+      let start = Date.now()
       // timeout after this.timeout seconds
-      for (var i = 0; i < this.timeout*100; i++) {
+      while (Date.now() - start < this.timeout * 1000) {
+        await this._can_recv()
         data = this.rx_buffer.shift()
         if (data !== undefined) {
           await this._isotp_response(data)
@@ -465,7 +505,7 @@ export class UdsClient {
             break
           }
         } else {
-          await sleep(10)
+          await sleep(5)
         }
       }
 
@@ -474,24 +514,23 @@ export class UdsClient {
         throw new MessageTimeoutError("timeout waiting for response")
       }
 
-      var resp_sid = resp.length > 0 ? resp[0] : undefined
+      resp_sid = resp.length > 0 ? resp[0] : undefined
       // negative response
       if (resp_sid === NEGATIVE_RESPONSE_ID) {
-        var service_id = resp.length > 1 ? resp[1] : -1
+        let service_id = resp.length > 1 ? resp[1] : -1
         // eslint-disable-next-line
-        var service_desc = Object.keys(SERVICE_TYPE).find((k) => SERVICE_TYPE[k] === service_id)
+        let service_desc = Object.keys(SERVICE_TYPE).find((k) => SERVICE_TYPE[k] === service_id)
         if (service_desc === undefined) {
           service_desc = 'NON_STANDARD_SERVICE'
         }
-        var error_code = resp.length > 2 ? resp[2] : -1
-        var error_desc = _negative_response_codes[error_code]
+        let error_code = resp.length > 2 ? resp[2] : -1
+        let error_desc = _negative_response_codes[error_code]
         if (error_desc === undefined) {
           error_desc = 'unknown error'
         }
         // wait for another message if response pending
         if (error_code === 0x78) {
           if (this.debug) console.log("UDS-RX: response pending")
-          sleep(100)
           continue
         }
         throw new NegativeResponseError(`${service_desc} - ${error_desc}`, service_id, error_code)
@@ -502,14 +541,14 @@ export class UdsClient {
 
     // positive response
     if (service_type+0x40 !== resp_sid) {
-      var resp_sid_hex = resp_sid !== undefined ? resp_sid.toString(16) : undefined
+      let resp_sid_hex = resp_sid !== undefined ? resp_sid.toString(16) : undefined
       throw new InvalidServiceIdError(`invalid response service id: ${resp_sid_hex}`)
     }
 
     if (subfunction !== undefined) {
-      var resp_sfn = resp.length > 1 ? resp[1] : undefined
+      let resp_sfn = resp.length > 1 ? resp[1] : undefined
       if (subfunction !== resp_sfn) {
-        var resp_sfn_hex = resp_sfn !== undefined ? resp_sfn.toString(16) : undefined
+        let resp_sfn_hex = resp_sfn !== undefined ? resp_sfn.toString(16) : undefined
         throw new InvalidSubFunctioneError(`invalid response subfunction: 0x${resp_sfn_hex}`)
       }
     }

@@ -11,6 +11,8 @@ const styles = theme => ({
 });
 
 class FlashFirmware extends React.Component {
+  last_progress_update = 0
+
   state = {
     userAgreement: false,
     status: undefined,
@@ -34,7 +36,11 @@ class FlashFirmware extends React.Component {
         this.setState(state => ({status: result}))
         break
       case 'flash-progress':
-        this.setState(state => ({progress: result}))
+        // rate limit progress updates to make progress bar smooth
+        if (result === 100 || Date.now() - this.last_progress_update > 500) {
+          this.setState(state => ({progress: result}))
+          this.last_progress_update = Date.now()
+        }
         break
       default:
         break

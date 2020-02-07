@@ -9,7 +9,7 @@ import sleep from './sleep'
 
 class EcuWorker {
   constructor() {
-    console.log('initializing ...')
+    console.log('initializing ... (v1)')
     this.panda = Panda()
     this.panda.onError(this._onError)
 
@@ -39,7 +39,8 @@ class EcuWorker {
         await this.panda.device.device.claimInterface(0);
         // use SAFETY_ELM327
         await this.panda.setSafetyMode(3)
-        await this.panda.unpause()
+        // not using event based message delivery
+        await this.panda.pause()
         return
       }
     }
@@ -84,10 +85,6 @@ class EcuWorker {
     }
 
     return serialNumber
-  }
-
-  async disconnect() {
-    await this.panda.pause()
   }
 
   async getApplicationSoftwareId() {
@@ -195,7 +192,6 @@ class EcuWorker {
     console.log('done!')
     postMessage({ command: 'flash-status', result: 'complete!' })
 
-    await this.disconnect()
     return true
   }
 }
