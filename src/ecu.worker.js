@@ -9,15 +9,18 @@ import sleep from './sleep'
 
 class EcuWorker {
   constructor() {
-    console.log('initializing ... (v1)')
+    console.log('initializing ... (v2)')
     this.panda = Panda()
     this.panda.onError(this._onError)
+    this.heartbeatHandle = undefined
 
     this.client = new UdsClient(this.panda)
     this.rwd = undefined
     this.softwareVersion = undefined
 
     this._connectWebWorker = this._connectWebWorker.bind(this)
+    this._heartbeat = this._heartbeat.bind(this)
+    this._setPowerSaveState = this._setPowerSaveState.bind(this)
     this._onError = this._onError.bind(this)
     this.setFirmwareFile = this.setFirmwareFile.bind(this)
     this.getFirmwareInfo = this.getFirmwareInfo.bind(this)
@@ -34,9 +37,11 @@ class EcuWorker {
     for (let device of devices) {
       if (device.serialNumber === serialNumber) {
         this.panda.device.device = device
-        await this.panda.device.device.open();
-        await this.panda.device.device.selectConfiguration(1);
-        await this.panda.device.device.claimInterface(0);
+        await this.panda.device.device.open()
+        await this.panda.device.device.selectConfiguration(1)
+        await this.panda.device.device.claimInterface(0)
+        await this._setPowerSaveState()
+        await this._heartbeat()
         // use SAFETY_ELM327
         await this.panda.setSafetyMode(3)
         // not using event based message delivery
@@ -50,6 +55,37 @@ class EcuWorker {
 
   _onError(err) {
     console.error(err)
+  }
+
+  async _setPowerSaveState() {
+    console.log('normal power mode ...')
+    let params = {
+      request: 0xe7,
+      value: 0,
+      index: 0
+    }
+    await this.panda.device.vendorRequest(params, 0);
+  }
+
+  async _heartbeat() {
+    try {
+      if (!this.panda || !this.panda.device || !this.panda.device.device || !this.panda.device.device.opened) {
+        return
+      }
+
+      console.log('heartbeat ...')
+      let params = {
+        request: 0xf3,
+        value: 0,
+        index: 0
+      }
+      await this.panda.device.vendorRequest(params, 0);
+    }
+    catch (e) {
+      console.log(`heartbeat failed: ${e.toString()}`)
+    }
+    // send heartbeat every second to keep panda from going into no output mode
+    this.heartbeatHandle = setTimeout(this._heartbeat, 1000)
   }
 
   async setFirmwareFile(file) {
@@ -73,7 +109,6 @@ class EcuWorker {
     console.log('connecting ...')
     console.log(serialNumber)
     // can not use panda.start() because it calls requestDevice which is not supported from a Web Worker
-    //await this.panda.start()
     await this._connectWebWorker(serialNumber)
     if (this.rwd && this.rwd.canAddress) {
       console.log(`0x${this.rwd.canAddress.toString(16)}`)

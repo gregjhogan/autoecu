@@ -76,13 +76,11 @@ class CheckCompatible extends React.Component {
         this.props.onReceiveCompatible(this.state.firmwareValid && this.state.canAddress && compatible)
         break
       case 'error':
-        if (result.cmd === 'connect') {
-          this.setState(state => ({
-            softwareVersion: undefined,
-            versionStatus: undefined,
-            connected: false,
-          }))
-        }
+        this.setState(state => ({
+          softwareVersion: undefined,
+          versionStatus: undefined,
+          connected: false,
+        }))
         break
       default:
         break
