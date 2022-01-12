@@ -1,5 +1,12 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# editors
+.idea
+*.iml
+.vscode
+*.swp
+*.swo
+
 # dependencies
 /node_modules
 /.pnp
