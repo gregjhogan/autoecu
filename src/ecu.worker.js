@@ -1,5 +1,3 @@
-import assert from 'assert'
-
 import Panda from '@commaai/pandajs'
 import { UdsClient, DATA_IDENTIFIER_TYPE, SESSION_TYPE, ACCESS_TYPE, ROUTINE_CONTROL_TYPE, ROUTINE_IDENTIFIER_TYPE } from './uds'
 import { NegativeResponseError } from './uds'
@@ -196,7 +194,7 @@ class EcuWorker {
     await this.client.write_data_by_identifier(0xF101, this.rwd.firmware.decryptionKey)
 
     console.log('request download ...')
-    postMessage({ command: 'flash-status', result: 'flash firmware ...' })    
+    postMessage({ command: 'flash-status', result: 'flash firmware ...' })
     console.log(`-start addr: 0x${this.rwd.firmware.start.toString(16)}`)
     console.log(`-data length: 0x${this.rwd.firmware.size.toString(16)}`)
     var block_size = await this.client.request_download(this.rwd.firmware.start, this.rwd.firmware.size)
